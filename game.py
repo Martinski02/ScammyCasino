@@ -1,13 +1,13 @@
 # main.py
 from slot_1.slot_1 import slot_1
-
+from version import VERSION
 
 def title_screen(game_name):
-    print(game_name + "\n")
+    print(f"{game_name} Version: {VERSION}")
     input("Press Enter to start...")
 
 def main_menu():
-    print(f"\n=== Scammy Casino === \n")
+    print(f"\n=== Main Menu === \n")
     instruction = "\nChoose an option 1-6: "
     options = ["Gamble", "Shop", "Profil", "Social", "Settings", "Quit"]
 

@@ -11,7 +11,7 @@ SYMBOLS = [
 
 # 🎲 Basisgewichtungen – bestimmen Seltenheit
 BASE_WEIGHTS = [
-40, 30, 20, 15, 1, 10, 5, 5
+20, 20, 20, 15, 50, 10, 7, 5
 ]
 
 # 💰 Multiplikatoren pro Symbol
@@ -21,8 +21,8 @@ SYMBOL_BASE_MULTI = {
     "🍊": 1,
     "🍉": 2,
     "⭐": None,  # Scatter Sonderfall
-    "7️⃣": 5,
     "🍇": 3,
+    "7️⃣": 7,
     "🃏": 10,
 }
 

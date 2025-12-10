@@ -1,4 +1,4 @@
-# slot_1.py
+# slot_1/slot_1.py
 import random
 import time
 import sys
@@ -15,24 +15,22 @@ from slot_1.symbols import (
     SCATTER_REWARD,
     WILD,
     init_symbol_unlock_state,
-    unlock_next_symbol
 )
 
 from slot_1.lines import (
     init_line_state,
     get_active_lines,
-    upgrade_palindrom,
-    upgrade_spiegel,
 )
 
-# ---------------------------------------------------------
-# FARBEN (Fallback ohne colorama)
-# ---------------------------------------------------------
+# Neu: ausgelagertes Upgrade-System
+from slot_1.upgrades import apply_upgrade, get_upgrades_for_menu
+
+# Farbe (fallback ohne colorama)
 try:
-    from colorama import Fore, Style, init
-    init(autoreset=True)
+    from colorama import Fore, Style, init as colorama_init
+    colorama_init(autoreset=True)
     GREEN = Fore.GREEN
-    RED   = Fore.RED
+    RED = Fore.RED
     YELLOW = Fore.YELLOW
     CYAN = Fore.CYAN
     MAGENTA = Fore.MAGENTA
@@ -42,351 +40,290 @@ except Exception:
 
 
 # ---------------------------------------------------------
-# SPIELZUSTAND
+# HELPER
 # ---------------------------------------------------------
-bet = 10  # 10 Cent
-slot_level_multiplier = 1
-field_boosts = {}
-
-symbols = SYMBOLS
-weights = BASE_WEIGHTS[:]
-
-symbol_state = init_symbol_unlock_state()
-unlocked_symbols = symbol_state["unlocked"]
-
-line_state = init_line_state()
-
-spin_speed_upgrades = 0
-spin_speed = 5.0 / 12  # 12 Frames → 5 Sekunden
+def clear_screen():
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 
 # ---------------------------------------------------------
-# UPGRADE-EFFEKTE
+# SLOT STATE FACTORY
 # ---------------------------------------------------------
-def effect_unlock_symbol():
-    new = unlock_next_symbol(symbol_state)
-    if new:
-        print(GREEN + f"Neues Symbol freigeschaltet: {new}" + RESET)
-    else:
-        print("Alle Symbole freigeschaltet!")
+def make_slot_state(start_guthaben_cent: int = 0):
+    return {
+        "guthaben": int(start_guthaben_cent),
 
+        # Einsatz
+        "bet": 10,  # 10 Cent
 
-def effect_increase_bet():
-    global bet
-    bet *= 2
-    print(CYAN + f"Einsatz erhöht → {bet/100:.2f} Coins" + RESET)
+        # Multiplikator
+        "slot_multiplier": 1,
 
+        # Symboldaten
+        "symbols": SYMBOLS[:],
+        "weights": BASE_WEIGHTS[:],
+        "symbol_state": init_symbol_unlock_state(),
 
-def effect_increase_spin_speed():
-    global spin_speed_upgrades, spin_speed
+        # Scatter / Wild
+        "scatter": SCATTER,
+        "scatter_reward": SCATTER_REWARD,
+        "wild": WILD,
 
-    spin_speed_upgrades += 1
-    total = max(0.5, 5.0 - spin_speed_upgrades * 0.1)
-    spin_speed = total / 12
+        # Linien
+        "line_state": init_line_state(),
 
-    print(CYAN + f"Spin-Speed verbessert → {total:.2f}s" + RESET)
+        # Feldboosts
+        "field_boosts": {},
 
+        # Spin Animation
+        "spin_total_duration": 5.0,
+        "spin_speed_upgrades": 0,
 
-def effect_improve_symbol_chance():
-    global weights
-    new = weights[:]
-
-    # verbessere seltene Symbole leicht
-    for i in range(len(new)-1, max(-1, len(new)-4), -1):
-        new[i] += 2
-
-    weights[:] = new
-    print(CYAN + "Seltene Symbole verstärkt." + RESET)
-
-
-def effect_field_upgrade():
-    col = random.randint(0, 4)
-    row = random.randint(0, 2)
-    field_boosts[(col, row)] = field_boosts.get((col, row), 0) + 1
-    print(CYAN + f"Feld ({col},{row}) verbessert." + RESET)
-
-
-def effect_palindrom_upgrade():
-    msg = upgrade_palindrom(line_state)
-    print(GREEN + msg + RESET)
-
-
-def effect_spiegel_upgrade():
-    msg = upgrade_spiegel(line_state)
-    print(GREEN + msg + RESET)
-
-
-# ---------------------------------------------------------
-# UPGRADE-DATENBANK
-# ---------------------------------------------------------
-upgrades = {
-    "symbol_unlock": {
-        "name": "Symbol freischalten",
-        "level": 1,
-        "prices": [1,5,25,100,500,2500,10000,50000,250000],
-        "effect": effect_unlock_symbol
-    },
-    "bet": {
-        "name": "Höhere Einsätze",
-        "level": 1,
-        "prices": [5,50,500,5000,50000],
-        "effect": effect_increase_bet
-    },
-    "spin_speed": {
-        "name": "Schnellere Spins",
-        "level": 1,
-        "prices": [10,25,100,500],
-        "effect": effect_increase_spin_speed
-    },
-    "symbol_chance": {
-        "name": "Bessere Symbolchancen",
-        "level": 1,
-        "prices": [15,75,300,1200],
-        "effect": effect_improve_symbol_chance
-    },
-    "palindrom": {
-        "name": "Palindrom-Linien erweitern",
-        "level": 1,
-        "prices": [50, 250],
-        "effect": effect_palindrom_upgrade
-    },
-    "spiegel": {
-        "name": "Spiegelpaare freischalten",
-        "level": 1,
-        "prices": [10] * 200,
-        "effect": effect_spiegel_upgrade
-    },
-    "field": {
-        "name": "Feld Upgrade",
-        "level": 1,
-        "prices": [40,200,1000],
-        "effect": effect_field_upgrade
+        # Upgrade-Level werden von upgrades.py verwendet
+        "upgrade_levels": {}
     }
-}
+
+
+# ---------------------------------------------------------
+# SYMBOL-UTILS
+# ---------------------------------------------------------
+def unlocked_symbols(state):
+    return state["symbol_state"]["unlocked"]
 
 
 # ---------------------------------------------------------
 # REEL SPIN
 # ---------------------------------------------------------
-def spin_reels():
+def spin_reels(state):
     return [
-        random.choices(symbols, weights=weights, k=3)
+        random.choices(state["symbols"], weights=state["weights"], k=3)
         for _ in range(5)
     ]
 
 
 # ---------------------------------------------------------
-# ASCII SLOT-BOX (OHNE Bildschirm löschen)
+# ASCII SLOT BOX (sauber, ohne Fallback – wcwidth zwingend)
 # ---------------------------------------------------------
-def print_slot_box(reels):
-    CELL_WIDTH = 9
+from wcwidth import wcswidth
 
-    def pad(sym):
-        return str(sym).center(CELL_WIDTH)
+def print_slot_box(state, reels):
+    """
+    Zeichnet die Slot-Box. Emoji und Unicode werden sauber über wcwidth
+    gemessen und exakt in der Mitte der Zellbreite zentriert.
+    """
 
-    TOP    = "╔" + ("═" + "═"*CELL_WIDTH + "╦")*4 + "═" + "═"*CELL_WIDTH + "╗"
-    MID    = "╠" + ("═" + "═"*CELL_WIDTH + "╬")*4 + "═" + "═"*CELL_WIDTH + "╣"
-    BOTTOM = "╚" + ("═" + "═"*CELL_WIDTH + "╩")*4 + "═" + "═"*CELL_WIDTH + "╝"
+    CELL_WIDTH = 9  # sichtbare Breite jeder Zelle
+
+    def visible_width(text: str) -> int:
+        """Sichtbare Terminal-Breite (immer korrekt, da wcwidth existiert)."""
+        w = wcswidth(str(text))
+        return w if w >= 0 else 1  # wcwidth gibt -1 für unprintbare zurück
+
+    def pad_display(sym: str, width: int) -> str:
+        """
+        Zentriert ein Symbol basierend auf wcswidth().
+        Schneidet nichts ab, auch wenn Emoji breiter wirken.
+        """
+        s = str(sym)
+        vis = visible_width(s)
+
+        if vis >= width:
+            # Wenn das Symbol breiter ist als die Zelle: etwas einrücken
+            return " " + s
+
+        pad_total = width - vis
+        left = pad_total // 2
+        right = pad_total - left
+        return (" " * left) + s + (" " * right)
+
+    # Rahmen
+    TOP    = "╔" + ("═" * CELL_WIDTH + "╦") * 4 + "═" * CELL_WIDTH + "╗"
+    MID    = "╠" + ("═" * CELL_WIDTH + "╬") * 4 + "═" * CELL_WIDTH + "╣"
+    BOTTOM = "╚" + ("═" * CELL_WIDTH + "╩") * 4 + "═" * CELL_WIDTH + "╝"
+
+    unlocked = state["symbol_state"]["unlocked"]
 
     print(YELLOW + TOP)
     for row in range(3):
         line = "║"
         for col in range(5):
             sym = reels[col][row]
-            # Anzeige NUR wenn freigeschaltet
-            if sym in unlocked_symbols:
-                display = sym
-            else:
-                display = "🔒"
-            line += pad(display) + "║"
+            display = sym if sym in unlocked else "🔒"
+            line += pad_display(display, CELL_WIDTH) + "║"
         print(YELLOW + line)
+
         if row < 2:
             print(YELLOW + MID)
     print(YELLOW + BOTTOM + RESET)
 
+
 # ---------------------------------------------------------
 # ANIMATION
 # ---------------------------------------------------------
-def spin_animation(final_reels):
-    frames = 12
-    step = 2
+def spin_animation(state, final_reels):
+    total = max(0.5, float(state["spin_total_duration"]))
+    baseline_frames = 12
+    frames = max(6, int(baseline_frames * (total / 5.0)))
+    step = max(1, int(frames / 6))
+    SYMS = state["symbols"]
 
-    for frame in range(frames - 1):
+    for frame in range(frames):
         current = []
         for col in range(5):
-
             threshold = frames - 1 - ((4 - col) * step)
             if frame < threshold:
-                current.append([random.choice(symbols) for _ in range(3)])
+                current.append([random.choice(SYMS) for _ in range(3)])
             else:
                 current.append(final_reels[col])
 
-        sys.stdout.write("\033[2J\033[H")  # Nur hier löschen!
-        sys.stdout.flush()
-
+        clear_screen()
         print(MAGENTA + "SPINNING...\n" + RESET)
-        print_slot_box(current)
-        time.sleep(spin_speed)
+        print_slot_box(state, current)
+        time.sleep(total / frames)
 
 
 # ---------------------------------------------------------
 # GEWINNPRÜFUNG
 # ---------------------------------------------------------
-def check_and_apply_wins(reels, guthaben):
+def check_and_apply_wins(state, reels):
     total = 0
-    active_lines = get_active_lines(line_state)
+    active_lines = get_active_lines(state["line_state"])
+    unlocked = unlocked_symbols(state)
 
-    # -------- SCATTER --------
-    scatter_count = sum(
-        1 for col in reels for sym in col
-        if sym == SCATTER and sym in unlocked_symbols
-    )
+    # --- Scatter Check ---
+    scatter_count = sum(col.count(state["scatter"]) for col in reels)
+    if state["scatter"] in unlocked and scatter_count >= 3:
+        print(GREEN + f"SCATTER BONUS! +{state['scatter_reward']} Coins" + RESET)
+        total += int(state["scatter_reward"] * 100)
 
-    if scatter_count >= 3:
-        print(GREEN + f"SCATTER BONUS! +{SCATTER_REWARD} Coins" + RESET)
-        total += SCATTER_REWARD * 100  # in Cent
-
-
-    # -------- LINIEN --------
+    # --- Liniengewinne ---
     for line in active_lines:
         start = reels[0][line[0]]
 
-        # kein Gewinnsymbol
-        if start not in unlocked_symbols:
+        if start not in unlocked:
             continue
-
-        # Scatter zählt NICHT auf Linien
-        if start == SCATTER:
+        if start == state["scatter"]:
             continue
 
         count = 1
         for w in range(1, 5):
-            sym = reels[w][line[w]]
-
-            # Wild ersetzt Symbol (aber nicht Scatter)
-            if sym == start or sym == WILD:
+            if reels[w][line[w]] == start:
                 count += 1
             else:
                 break
 
         if count >= 3:
-            base = SYMBOL_BASE_MULTI[start]  # Coins
-            bonus = BONUS_MULTI[count]
+            base_multi = SYMBOL_BASE_MULTI.get(start)
+            bonus = BONUS_MULTI.get(count, 1)
 
-            boosts = sum(field_boosts.get((c, line[c]), 0) for c in range(5))
+            boosts = sum(state["field_boosts"].get((c, line[c]), 0) for c in range(5))
             field_multi = 1 + 0.5 * boosts
 
-            win_coins = bet * base * count * bonus * field_multi * slot_level_multiplier
-            win = int(win_coins)
-
+            win = int(state["bet"] * count * base_multi * bonus * field_multi * state["slot_multiplier"])
             total += win
 
-            print(
-                GREEN +
-                f"Linie {line}: {count}x {start} | Bonus x{bonus} | Feld x{field_multi:.1f} → +{win/100:.2f} Coins"
-                + RESET
-            )
+            fm = f" | Feld×{field_multi:.1f}" if boosts else ""
+            print(GREEN + f"Linie {line}: {count}x {start} | Bonus×{bonus}{fm} → +{win/100:.2f} Coins" + RESET)
 
-    # TOTAL
     if total == 0:
         print(RED + "Kein Gewinn.\n" + RESET)
     else:
         print(GREEN + f"\nTOTAL GEWINN: +{total/100:.2f} Coins\n" + RESET)
 
-    return guthaben + total
+    state["guthaben"] += total
+    return state["guthaben"]
 
 
 # ---------------------------------------------------------
-# SPIN-MODUS
+# SPIN MODE
 # ---------------------------------------------------------
-def slot_spin(guthaben):
-    print(MAGENTA + "\n=== SPIN MODUS ===")
+def slot_spin(state):
+    print(MAGENTA + "\n=== SPIN MODUS ===" + RESET)
     print(CYAN + "Enter = Spin | q = zurück" + RESET)
 
     while True:
         cmd = input("> ")
         if cmd.lower() == "q":
-            return guthaben
+            return state["guthaben"]
 
-        reels = spin_reels()
-        spin_animation(reels)
+        reels = spin_reels(state)
 
-        sys.stdout.write("\033[2J\033[H")
-        sys.stdout.flush()
+        try:
+            spin_animation(state, reels)
+        except:
+            pass
 
-        print_slot_box(reels)
-        guthaben = check_and_apply_wins(reels, guthaben)
-        print(CYAN + f"Guthaben: {guthaben/100:.2f} Coins\n" + RESET)
+        clear_screen()
+        print_slot_box(state, reels)
+        check_and_apply_wins(state, reels)
+
+        print(CYAN + f"Guthaben: {state['guthaben']/100:.2f} Coins\n" + RESET)
 
 
 # ---------------------------------------------------------
-# UPGRADE-MENÜ
+# UPGRADE MENU → benutzt upgrades.py
 # ---------------------------------------------------------
-def slot_upgrade_menu(guthaben):
+def slot_upgrade_menu(state):
     while True:
         print("\n=== UPGRADES ===")
 
-        keys = list(upgrades.keys())
-
-        for i, key in enumerate(keys):
-            u = upgrades[key]
+        items = get_upgrades_for_menu(state)
+        for i, u in enumerate(items):
             print(f"{i+1}) {u['name']} (Lv {u['level']})")
-
-            if u["level"] > len(u["prices"]):
+            if u["maxed"]:
                 print("   MAXED OUT")
             else:
-                price = u["prices"][u["level"] - 1] * 100
-                print(f"   Preis: {price/100:.2f} Coins")
+                print(f"   Preis: {u['price_cent']/100:.2f} Coins")
 
-        print(f"{len(keys)+1}) Zurück")
-
+        print(f"{len(items)+1}) Zurück")
         choice = input("> ")
+
         if not choice.isdigit():
-            print("Ungültig.")
+            print("Ungültige Eingabe.")
             continue
 
         choice = int(choice)
+        if choice == len(items) + 1:
+            return state["guthaben"]
 
-        if choice == len(keys) + 1:
-            return guthaben
-
-        key = keys[choice - 1]
-        u = upgrades[key]
-
-        if u["level"] > len(u["prices"]):
-            print("MAXED")
+        if not 1 <= choice <= len(items):
+            print("Ungültige Auswahl.")
             continue
 
-        price = u["prices"][u["level"] - 1] * 100
-        if guthaben < price:
-            print("Nicht genug Coins!")
-            continue
+        item = items[choice - 1]
+        key = item["key"]
 
-        guthaben -= price
-        u["effect"]()
-        u["level"] += 1
-
-        print(GREEN + "Upgrade gekauft!" + RESET)
+        state["guthaben"] = apply_upgrade(
+            key,
+            state["guthaben"],
+            state,
+            state["symbol_state"],
+            state["line_state"],
+            state["weights"]
+        )
 
 
 # ---------------------------------------------------------
-# SLOT-HAUPTMENÜ
+# SLOT MAIN MENU
 # ---------------------------------------------------------
 def slot_1(guthaben):
+    state = make_slot_state(start_guthaben_cent=guthaben)
+
     while True:
         print("\n=== SLOT 1 ===")
-        print("Freigeschaltet:", ", ".join(unlocked_symbols))
-        print(f"Einsatz: {bet/100:.2f} | Linien: {len(get_active_lines(line_state))} | Speed: {spin_speed*12:.2f}s")
+        print("Freigeschaltet:", ", ".join(unlocked_symbols(state)))
+        print(f"Einsatz: {state['bet']/100:.2f} | Linien: {len(get_active_lines(state['line_state']))} | Spin: {state['spin_total_duration']:.2f}s")
         print("1) Spin")
         print("2) Upgrades")
         print("3) Zurück")
 
         choice = input("> ")
         if choice == "1":
-            guthaben = slot_spin(guthaben)
+            slot_spin(state)
         elif choice == "2":
-            guthaben = slot_upgrade_menu(guthaben)
+            slot_upgrade_menu(state)
         elif choice == "3":
-            return "main", guthaben
+            return "main", state["guthaben"]
         else:
             print("Ungültige Eingabe.")

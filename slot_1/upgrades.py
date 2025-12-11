@@ -117,6 +117,19 @@ def _effect_palindrom_upgrade(slot_state: Dict[str, Any], symbol_state: Dict[str
         return
     print("Alle Palindrom-Linien bereits freigeschaltet!")
 
+def _effect_scatter_chance(slot_state, symbol_state, line_state, weights=None):
+    """
+    Erhöht die Wahrscheinlichkeit pro Walze, dass EIN Scatter entsteht.
+    Maximal sinnvoll ~0.20 (20%)
+    """
+    old = slot_state.get("scatter_p", 0.05)
+
+    # sanft erhöhen: +0.01 pro Upgrade
+    new = min(0.20, old + 0.01)
+
+    slot_state["scatter_p"] = new
+    print(f"Scatter-Chance erhöht: {old:.3f} → {new:.3f}")
+
 
 def _effect_spiegel_upgrade(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
     if lines_upgrade_spiegel:
@@ -156,11 +169,6 @@ UPGRADE_DEFS = {
         "prices": [10, 25, 100, 500],
         "effect": _effect_increase_spin_speed
     },
-    "symbol_chance": {
-        "name": "Bessere Symbolchancen",
-        "prices": [15, 75, 300, 1200],
-        "effect": _effect_improve_symbol_chance
-    },
     "field": {
         "name": "Feld Upgrade",
         "prices": [40, 200, 1000],
@@ -176,7 +184,17 @@ UPGRADE_DEFS = {
         # viele günstige Schritte ok
         "prices": [10] * 200,
         "effect": _effect_spiegel_upgrade
-    }
+    },
+    "scatter_chance": {
+    "name": "Scatter Wahrscheinlichkeit erhöhen",
+    "prices": [50, 150, 300, 600, 1200],
+    "effect": _effect_scatter_chance
+},
+    # "symbol_chance": {
+    #     "name": "Bessere Symbolchancen",
+    #     "prices": [15, 75, 300, 1200],
+    #     "effect": _effect_improve_symbol_chance
+    # },    
 }
 
 

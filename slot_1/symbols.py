@@ -21,7 +21,7 @@ SYMBOL_BASE_MULTI = {
     "🍊": 2,
     "🍉": 2,
     "⭐": None,  # Scatter Sonderfall
-    "🍇": 3,
+    "🍇": 5,
     "7️⃣": 7,
     "🃏": 10,
 }
@@ -29,8 +29,8 @@ SYMBOL_BASE_MULTI = {
 # Nicht-lineare Boni für 3,4,5 Treffer
 BONUS_MULTI = {
     3: 1,
-    4: 10,
-    5: 100,
+    4: 5,
+    5: 50,
 }
 
 # Scatter Belohnung (Coins, nicht Cent!)

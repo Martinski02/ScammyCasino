@@ -62,16 +62,30 @@ def _effect_increase_bet(slot_state: Dict[str, Any], symbol_state: Dict[str, Any
 
 
 def _effect_increase_spin_speed(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    # expect slot_state keys: 'spin_upgrades','spin_frames','base_spinspeed','spin_speed'
-    slot_state["spin_upgrades"] = slot_state.get("spin_upgrades", 0) + 1
-    base = slot_state.get("base_spinspeed", 5.0)
-    frames = slot_state.get("spin_frames", 12)
-    total_duration = max(0.5, base - slot_state["spin_upgrades"] * 0.1)
-    slot_state["spin_speed"] = total_duration / frames
-    print(f"Spin-Speed verbessert → Gesamtdauer: {total_duration:.2f}s")
+    """
+    Vereinheitlichte Spin-Speed-Logik:
+    - slot_state erwartet:
+        'spin_total_duration' (float, Sekunden für volle Animation)
+        'spin_speed_upgrades' (int, wie oft verbessert)
+    - Bei jedem Upgrade reduzieren wir die Gesamtdauer leicht (-0.1s), min 0.5s.
+    - Markiere 'spin_speed_maxed' wenn Cap erreicht, damit apply_upgrade ev. Level anpasst.
+    """
+    # aktuelle Werte holen / defaults setzen
+    current_upgrades = slot_state.get("spin_speed_upgrades", 0)
+    current_total = float(slot_state.get("spin_total_duration", 5.0))
 
-    # Wenn wir das Max erreicht haben, setze das upgrade level auf max (der Aufrufer macht das UI)
-    if total_duration <= 0.5:
+    # apply one more upgrade
+    current_upgrades += 1
+    new_total = max(0.5, 5.0 - current_upgrades * 0.1)  # baseline 5.0s wie in slot_1
+
+    # speichern in den keys, die slot_1 erwartet
+    slot_state["spin_speed_upgrades"] = current_upgrades
+    slot_state["spin_total_duration"] = new_total
+
+    print(f"Spin-Speed verbessert → Gesamtdauer: {new_total:.2f}s (Upgrades: {current_upgrades})")
+
+    # wenn Cap erreicht, markiere das so, apply_upgrade kann level auf max setzen
+    if new_total <= 0.5:
         slot_state["spin_speed_maxed"] = True
 
 
@@ -156,38 +170,38 @@ def _effect_spiegel_upgrade(slot_state: Dict[str, Any], symbol_state: Dict[str, 
 UPGRADE_DEFS = {
     "symbol_unlock": {
         "name": "Symbol freischalten",
-        "prices": [1, 5, 25, 100, 500, 2500, 10000],
+        "prices": [1, 2, 4, 8, 16, 32, 64],
         "effect": _effect_unlock_symbol
+    },
+    "spin_speed": {
+        "name": "Schnellere Spins",
+        "prices": [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000],
+        "effect": _effect_increase_spin_speed
     },
     "bet": {
         "name": "Höhere Einsätze",
         "prices": [5, 50, 500, 5000],
         "effect": _effect_increase_bet
     },
-    "spin_speed": {
-        "name": "Schnellere Spins",
-        "prices": [10, 25, 100, 500],
-        "effect": _effect_increase_spin_speed
-    },
     "field": {
         "name": "Feld Upgrade",
-        "prices": [40, 200, 1000],
+        "prices": [10] * 999,
         "effect": _effect_field_boost
     },
     "palindrom": {
         "name": "Palindrom-Linien erweitern",
-        "prices": [50, 250],
+        "prices": [10, 1000],
         "effect": _effect_palindrom_upgrade
     },
     "spiegel": {
         "name": "Spiegelpaare freischalten",
         # viele günstige Schritte ok
-        "prices": [10] * 200,
+        "prices": [100] * 200,
         "effect": _effect_spiegel_upgrade
     },
     "scatter_chance": {
     "name": "Scatter Wahrscheinlichkeit erhöhen",
-    "prices": [50, 150, 300, 600, 1200],
+    "prices": [50, 500, 5000, 50000, 500000],
     "effect": _effect_scatter_chance
 },
     # "symbol_chance": {

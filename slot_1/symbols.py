@@ -29,8 +29,8 @@ SYMBOL_BASE_MULTI = {
 # Nicht-lineare Boni für 3,4,5 Treffer
 BONUS_MULTI = {
     3: 1,
-    4: 5,
-    5: 50,
+    4: 2,
+    5: 4,
 }
 
 # Scatter Belohnung (Coins, nicht Cent!)

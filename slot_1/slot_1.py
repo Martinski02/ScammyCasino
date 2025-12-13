@@ -33,6 +33,10 @@ except Exception:
 def format_number(value: float | int, max_decimals: int = 3) -> str:
     value = float(value)
 
+    # Kleine Werte normal anzeigen
+    if value < 1:
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
     suffixes = [
         (1_000_000_000, "b"),
         (1_000_000, "m"),
@@ -45,7 +49,9 @@ def format_number(value: float | int, max_decimals: int = 3) -> str:
             formatted = f"{num:.{max_decimals}f}".rstrip("0").rstrip(".")
             return f"{formatted}{suffix}"
 
-    return str(int(value))
+    # 1–999: max 2 Dezimalstellen, keine Fake-Rundung
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
 
 # ---------------------------------------------------------
 # SCREEN HELPER
@@ -363,11 +369,29 @@ def slot_upgrade_menu(state):
         items = get_upgrades_for_menu(state)
 
         for i, u in enumerate(items):
-            print(f"{i+1}) {u['name']} (Lv {u['level']})")
+            line = f"{i+1}) {u['name']} (Lv {u['level']})"
+
             if u["maxed"]:
-                print("   MAXED OUT")
+                line += " [MAX]"
+                print(line)
+                continue
+
+            if u["purchasable"]:
+                line += f"  → {format_number(u['price_cent']/100)} Coins"
+                print(GREEN + line + RESET)
+                continue
+
+            # sichtbar, aber gesperrt
+            line += " 🔒"
+            print(YELLOW + line + RESET)
+
+            if u["locked_reason"]:
+                for reason in u["locked_reason"]:
+                    print(f"     └─ benötigt: {reason}")
             else:
-                print(f"   Preis: {format_number(u['price_cent']/100)} Coins")
+                price = format_number(u['price_cent']/100)
+                print(f"     └─ benötigt: {price} Coins")
+
 
         print(f"{len(items)+1}) Zurück")
         ch = input("> ")
@@ -383,15 +407,28 @@ def slot_upgrade_menu(state):
             print("Ungültig.")
             continue
 
-        key = items[ch - 1]["key"]
+        item = items[ch - 1]
+
+        if item["maxed"]:
+            print(RED + "❌ Dieses Upgrade ist bereits MAXED." + RESET)
+            continue
+
+        if not item["purchasable"]:
+            print(RED + "❌ Dieses Upgrade ist gesperrt." + RESET)
+            if item["locked_reason"]:
+                for r in item["locked_reason"]:
+                    print(f"   - benötigt: {r}")
+            continue
+
+        # ✅ nur hier darf gekauft werden
         state["guthaben"] = apply_upgrade(
-            key,
+            item["key"],
             state["guthaben"],
             state,
             state["symbol_state"],
             state["line_state"],
             state["weights"]
-        )
+)
 
 
 # ---------------------------------------------------------

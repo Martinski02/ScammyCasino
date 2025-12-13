@@ -1,106 +1,78 @@
 # slot_1/upgrades.py
 """
-Upgrade-System (Option B - strukturierter slot_state)
-- Definiert Upgrade-Metadaten (name, prices, effect)
-- Bietet apply_upgrade(key, guthaben, slot_state, symbol_state, line_state, weights=None)
-- Bietet helper get_upgrades_for_menu(slot_state) zur Anzeige
+Upgrade-System – stabil & konsistent
+
+Enthält:
+- Upgrade-Definitionen (UPGRADE_DEFS)
+- Upgrade-Visibility + Requirement-System (Schritt 4.5 Teil 1)
+- apply_upgrade(...)
+- get_upgrades_for_menu(...)
+
+Statuslogik:
+KAUFBAR:
+    Coins >= Preis
+    UND alle Requirements erfüllt
+
+SICHTBAR:
+    Coins >= Preis
+    ODER mindestens ein Requirement erfüllt
+
+UNSICHTBAR:
+    Coins < Preis
+    UND keine Requirements erfüllt
 """
 
+from typing import Dict, Any, Optional
 import random
-from typing import Optional, Dict, Any
 
-# Wir benutzen vorhandene Line/Symbol-Funktionen falls vorhanden.
-# Diese Importe sind optional — wenn du lokale Funktionen nutzt, können
-# sie entfallen. Falls lines.unlock/... an anderer Stelle sind,
-# kannst du die Effekte anpassen.
+# ---------------------------------------------------------
+# IMPORTS (optional, aber vorhanden im Projekt)
+# ---------------------------------------------------------
 try:
     from slot_1.symbols import unlock_next_symbol
 except Exception:
-    # Fallback: wenn nicht importierbar, upgrades.py nutzt symbol_state direkt.
     unlock_next_symbol = None
 
 try:
-    from slot_1.lines import upgrade_palindrom as lines_upgrade_palindrom
-    from slot_1.lines import upgrade_spiegel as lines_upgrade_spiegel
+    from slot_1.lines import upgrade_palindrom, upgrade_spiegel
 except Exception:
-    lines_upgrade_palindrom = None
-    lines_upgrade_spiegel = None
+    upgrade_palindrom = None
+    upgrade_spiegel = None
 
 
-# -------------------------
-# Hilfs-Funktionen / Effekte
-# -------------------------
-def _effect_unlock_symbol(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    """
-    Schaltet das nächste Symbol frei. Erwartet symbol_state mit
-    { 'order': [...], 'unlocked': [...], 'next_index': int }.
-    Wenn slot_1.symbols.unlock_next_symbol importierbar ist, verwenden wir das.
-    """
+# ---------------------------------------------------------
+# EFFECTS
+# ---------------------------------------------------------
+def _effect_unlock_symbol(slot_state, symbol_state, line_state, weights=None):
     if unlock_next_symbol:
         new = unlock_next_symbol(symbol_state)
         if new:
             print(f"Neues Symbol freigeschaltet: {new}")
-            return
         else:
             print("Alle Symbole bereits freigeschaltet!")
-            return
-
-    # Fallback - manuelle Manipulation
-    if symbol_state["next_index"] >= len(symbol_state["order"]):
-        print("Alle Symbole bereits freigeschaltet!")
         return
 
-    sym = symbol_state["order"][symbol_state["next_index"]]
-    symbol_state["unlocked"].append(sym)
-    symbol_state["next_index"] += 1
-    print(f"Neues Symbol freigeschaltet: {sym}")
 
-
-def _effect_increase_bet(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    slot_state["bet"] = int(slot_state["bet"] * 2)
+def _effect_increase_bet(slot_state, symbol_state, line_state, weights=None):
+    slot_state["bet"] *= 2
     print(f"Einsatz erhöht → {slot_state['bet']/100:.2f} Coins")
 
 
-def _effect_increase_spin_speed(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    """
-    Vereinheitlichte Spin-Speed-Logik:
-    - slot_state erwartet:
-        'spin_total_duration' (float, Sekunden für volle Animation)
-        'spin_speed_upgrades' (int, wie oft verbessert)
-    - Bei jedem Upgrade reduzieren wir die Gesamtdauer leicht (-0.1s), min 0.5s.
-    - Markiere 'spin_speed_maxed' wenn Cap erreicht, damit apply_upgrade ev. Level anpasst.
-    """
-    # aktuelle Werte holen / defaults setzen
-    current_upgrades = slot_state.get("spin_speed_upgrades", 0)
-    current_total = float(slot_state.get("spin_total_duration", 5.0))
+def _effect_increase_spin_speed(slot_state, symbol_state, line_state, weights=None):
+    upgrades = slot_state.get("spin_speed_upgrades", 0) + 1
+    slot_state["spin_speed_upgrades"] = upgrades
+    slot_state["spin_total_duration"] = max(0.5, 5.0 - upgrades * 0.1)
 
-    # apply one more upgrade
-    current_upgrades += 1
-    new_total = max(0.5, 5.0 - current_upgrades * 0.1)  # baseline 5.0s wie in slot_1
+    print(
+        f"Spin-Speed verbessert → {slot_state['spin_total_duration']:.2f}s "
+        f"(Upgrades: {upgrades})"
+    )
 
-    # speichern in den keys, die slot_1 erwartet
-    slot_state["spin_speed_upgrades"] = current_upgrades
-    slot_state["spin_total_duration"] = new_total
-
-    print(f"Spin-Speed verbessert → Gesamtdauer: {new_total:.2f}s (Upgrades: {current_upgrades})")
-
-    # wenn Cap erreicht, markiere das so, apply_upgrade kann level auf max setzen
-    if new_total <= 0.5:
+    if slot_state["spin_total_duration"] <= 0.5:
         slot_state["spin_speed_maxed"] = True
 
 
-def _effect_improve_symbol_chance(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    if weights is None:
-        print("Fehler: weights müssen übergeben werden, um Symbolwahrscheinlichkeiten zu verbessern.")
-        return
-    # erhöhe die Gewichte der seltensten 3 Symbole leicht
-    idxs = sorted(range(len(weights)), key=lambda i: weights[i])[:3]
-    for i in idxs:
-        weights[i] += 2
-    print("Seltenere Symbole etwas häufiger gemacht.")
-
-
-def _effect_field_boost(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
+def _effect_field_boost(slot_state, symbol_state, line_state, weights=None):
     col = random.randint(0, 4)
     row = random.randint(0, 2)
     fb = slot_state.setdefault("field_boosts", {})
@@ -108,192 +80,212 @@ def _effect_field_boost(slot_state: Dict[str, Any], symbol_state: Dict[str, Any]
     print(f"Feld ({col},{row}) verbessert (+50%).")
 
 
-def _effect_palindrom_upgrade(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    # prefer lines module method if present
-    if lines_upgrade_palindrom:
-        msg = lines_upgrade_palindrom(line_state)
-        print(msg)
-        return
-    # fallback: manipulate line_state directly if structure known
-    pal = line_state.get("pal_step", 1)
-    if pal == 1:
-        # append group2 if present on line_state (expecting constants somewhere else)
-        if "PALINDROM_GROUP_2" in line_state:
-            line_state["active"].extend(line_state["PALINDROM_GROUP_2"])
-        line_state["pal_step"] = 2
-        print("Palindrom-Gruppe 2 freigeschaltet!")
-        return
-    if pal == 2:
-        if "PALINDROM_GROUP_3" in line_state:
-            line_state["active"].extend(line_state["PALINDROM_GROUP_3"])
-        line_state["pal_step"] = 3
-        print("Palindrom-Gruppe 3 freigeschaltet!")
-        return
-    print("Alle Palindrom-Linien bereits freigeschaltet!")
+def _effect_palindrom_upgrade(slot_state, symbol_state, line_state, weights=None):
+    if upgrade_palindrom:
+        print(upgrade_palindrom(line_state))
+
+
+def _effect_spiegel_upgrade(slot_state, symbol_state, line_state, weights=None):
+    if upgrade_spiegel:
+        print(upgrade_spiegel(line_state))
+
 
 def _effect_scatter_chance(slot_state, symbol_state, line_state, weights=None):
-    """
-    Erhöht die Wahrscheinlichkeit pro Walze, dass EIN Scatter entsteht.
-    Maximal sinnvoll ~0.20 (20%)
-    """
     old = slot_state.get("scatter_p", 0.05)
-
-    # sanft erhöhen: +0.01 pro Upgrade
     new = min(0.20, old + 0.01)
-
     slot_state["scatter_p"] = new
     print(f"Scatter-Chance erhöht: {old:.3f} → {new:.3f}")
 
 
-def _effect_spiegel_upgrade(slot_state: Dict[str, Any], symbol_state: Dict[str, Any], line_state: Dict[str, Any], weights: Optional[list] = None):
-    if lines_upgrade_spiegel:
-        msg = lines_upgrade_spiegel(line_state)
-        print(msg)
-        return
-    # fallback: if line_state stores a list of pairs, use pair_index
-    idx = line_state.get("pair_index", 0)
-    pairs = line_state.get("SPIEGEL_PAARE", [])
-    if idx < len(pairs):
-        a, b = pairs[idx]
-        line_state["active"].append(a)
-        line_state["active"].append(b)
-        line_state["pair_index"] = idx + 1
-        print(f"Spiegelpaar {idx+1} freigeschaltet!")
-        return
-    print("Alle Spiegelpaare bereits freigeschaltet!")
-
-
-# -------------------------
-# Upgrade-DB (metadaten)
-# -------------------------
-# Preise sind in COINS (lesbar), apply_upgrade multipliziert *100 für CENT
+# ---------------------------------------------------------
+# UPGRADE DEFINITIONS
+# ---------------------------------------------------------
 UPGRADE_DEFS = {
     "symbol_unlock": {
         "name": "Symbol freischalten",
         "prices": [1, 2, 4, 8, 16, 32, 64],
-        "effect": _effect_unlock_symbol
-    },
-    "spin_speed": {
-        "name": "Schnellere Spins",
-        "prices": [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000],
-        "effect": _effect_increase_spin_speed
+        "effect": _effect_unlock_symbol,
     },
     "bet": {
         "name": "Höhere Einsätze",
-        "prices": [5, 50, 500, 5000],
-        "effect": _effect_increase_bet
+        "prices": [10, 50, 500, 5000],
+        "effect": _effect_increase_bet,
+    },
+    "spin_speed": {
+        "name": "Schnellere Spins",
+        "prices": [2.5, 5, 10, 20, 50, 100],
+        "effect": _effect_increase_spin_speed,
     },
     "field": {
-        "name": "Feld Upgrade",
+        "name": "Feld-Upgrade",
         "prices": [10] * 999,
-        "effect": _effect_field_boost
+        "effect": _effect_field_boost,
     },
     "palindrom": {
-        "name": "Palindrom-Linien erweitern",
+        "name": "Palindrom-Linien",
         "prices": [10, 1000],
-        "effect": _effect_palindrom_upgrade
+        "effect": _effect_palindrom_upgrade,
     },
     "spiegel": {
-        "name": "Spiegelpaare freischalten",
-        # viele günstige Schritte ok
+        "name": "Spiegelpaare",
         "prices": [100] * 200,
-        "effect": _effect_spiegel_upgrade
+        "effect": _effect_spiegel_upgrade,
     },
     "scatter_chance": {
-    "name": "Scatter Wahrscheinlichkeit erhöhen",
-    "prices": [50, 500, 5000, 50000, 500000],
-    "effect": _effect_scatter_chance
-},
-    # "symbol_chance": {
-    #     "name": "Bessere Symbolchancen",
-    #     "prices": [15, 75, 300, 1200],
-    #     "effect": _effect_improve_symbol_chance
-    # },    
+        "name": "Scatter-Wahrscheinlichkeit",
+        "prices": [50, 500, 5000, 50000],
+        "effect": _effect_scatter_chance,
+    },
 }
 
 
-# -------------------------
-# Core: apply_upgrade()
-# -------------------------
-def apply_upgrade(key: str,
-                  guthaben_cent: int,
-                  slot_state: Dict[str, Any],
-                  symbol_state: Dict[str, Any],
-                  line_state: Dict[str, Any],
-                  weights: Optional[list] = None) -> int:
-    """
-    Führt ein Upgrade aus:
-    - key: upgrade-key (siehe UPGRADE_DEFS)
-    - guthaben_cent: aktuelles Guthaben in CENT
-    - slot_state, symbol_state, line_state: state-Objekte (dictionaries)
-    - weights: falls das Upgrade die Wahrscheinlichkeiten anpasst (symbol-chance)
+# ---------------------------------------------------------
+# REQUIREMENTS (Schritt 4.5 Teil 1)
+# ---------------------------------------------------------
+UPGRADE_REQUIREMENTS = {
+    "bet": {
+        "requires_upgrade": "symbol_unlock",
+    },
+    "spin_speed": {
+        "requires_upgrade": "symbol_unlock",
+    },
+    "field": {
+        "requires_upgrade": "symbol_unlock",
+    },
+    "palindrom": {
+        "requires_upgrade": "bet",
+    },
+    "spiegel": {
+        "requires_upgrade": "palindrom",
+    },
+    "scatter_chance": {
+        "requires_symbol": "⭐",
+    },
+}
 
-    Liefert aktualisiertes guthaben (in CENT) zurück.
+
+# ---------------------------------------------------------
+# REQUIREMENT CHECKER
+# ---------------------------------------------------------
+def check_requirements(key: str, slot_state: Dict[str, Any]) -> list[str]:
     """
+    Gibt eine Liste fehlender Requirements zurück.
+    Leere Liste = alle erfüllt.
+    """
+    missing = []
+    levels = slot_state.get("upgrade_levels", {})
+    unlocked_symbols = slot_state["symbol_state"]["unlocked"]
+
+    req = UPGRADE_REQUIREMENTS.get(key, {})
+
+    if "requires_upgrade" in req:
+        req_key = req["requires_upgrade"]
+        if levels.get(req_key, 1) <= 1:
+            missing.append(f"Upgrade '{req_key}'")
+
+    if "requires_symbol" in req:
+        sym = req["requires_symbol"]
+        if sym not in unlocked_symbols:
+            missing.append(f"Symbol {sym}")
+
+    return missing
+
+
+# ---------------------------------------------------------
+# APPLY UPGRADE
+# ---------------------------------------------------------
+def apply_upgrade(
+    key: str,
+    guthaben_cent: int,
+    slot_state: Dict[str, Any],
+    symbol_state: Dict[str, Any],
+    line_state: Dict[str, Any],
+    weights: Optional[list] = None,
+) -> int:
 
     if key not in UPGRADE_DEFS:
-        print("Ungültiges Upgrade:", key)
+        print("Ungültiges Upgrade.")
         return guthaben_cent
 
-    # initialisiere levels-Container
     levels = slot_state.setdefault("upgrade_levels", {})
     lvl = levels.get(key, 1)
-
     prices = UPGRADE_DEFS[key]["prices"]
-    # maxed check
+
     if lvl > len(prices):
-        print("Dieses Upgrade ist bereits MAXED OUT.")
+        print("Upgrade bereits MAXED.")
         return guthaben_cent
 
-    cost_coins = prices[lvl - 1]
-    cost_cent = int(cost_coins * 100)
-
+    cost_cent = int(prices[lvl - 1] * 100)
     if guthaben_cent < cost_cent:
-        print("Nicht genug Coins!")
+        print("Nicht genug Coins.")
         return guthaben_cent
 
-    # bezahle
+    missing = check_requirements(key, slot_state)
+    if missing:
+        print("Upgrade gesperrt. Fehlend:", ", ".join(missing))
+        return guthaben_cent
+
+    # bezahlen
     guthaben_cent -= cost_cent
 
-    # effektausführung
-    try:
-        effect_fn = UPGRADE_DEFS[key]["effect"]
-        # some effect functions need weights; we always pass them
-        effect_fn(slot_state, symbol_state, line_state, weights)
-    except Exception as e:
-        print(f"Fehler beim Anwenden des Effekts: {e}")
+    # Effekt
+    UPGRADE_DEFS[key]["effect"](slot_state, symbol_state, line_state, weights)
 
-    # level erhöhen
+    # Level erhöhen
     levels[key] = lvl + 1
 
-    # special: if spin_speed reached max, reflect in levels (optional)
-    if slot_state.get("spin_speed_maxed", False) and key == "spin_speed":
-        levels[key] = len(prices) + 1
-
-    print(f"{UPGRADE_DEFS[key]['name']} gekauft! (neu: Level {levels[key]})")
+    print(f"{UPGRADE_DEFS[key]['name']} gekauft! (Lv {levels[key]})")
     return guthaben_cent
 
 
-# -------------------------
-# UI Helper
-# -------------------------
-def get_upgrades_for_menu(slot_state: Dict[str, Any]) -> list:
+# ---------------------------------------------------------
+# MENU HELPER
+# ---------------------------------------------------------
+def get_upgrades_for_menu(slot_state: Dict[str, Any]) -> list[dict]:
     """
-    Gibt eine Liste von dicts zurück, die im Upgrade-Menü gezeichnet werden können:
-    [{ 'key':..., 'name':..., 'level':..., 'price_cent':..., 'maxed':... }, ...]
+    Liefert alle Upgrades mit Status:
+    - sichtbar
+    - kaufbar
+    - maxed
+    - locked_reason
     """
     out = []
     levels = slot_state.get("upgrade_levels", {})
+    coins = slot_state["guthaben"]
+
     for key, meta in UPGRADE_DEFS.items():
         lvl = levels.get(key, 1)
         prices = meta["prices"]
         maxed = lvl > len(prices)
+
         price_cent = None if maxed else int(prices[lvl - 1] * 100)
+        missing = check_requirements(key, slot_state)
+
+        # Sichtbarkeit
+        visible = False
+        if not missing:
+            visible = True
+        elif price_cent is not None and coins >= price_cent:
+            visible = True
+
+        if not visible:
+            continue
+
+        purchasable = (
+            not maxed
+            and price_cent is not None
+            and coins >= price_cent
+            and not missing
+        )
+
         out.append({
             "key": key,
             "name": meta["name"],
             "level": lvl,
             "price_cent": price_cent,
-            "maxed": maxed
+            "maxed": maxed,
+            "purchasable": purchasable,
+            "locked_reason": missing,
         })
+
     return out

@@ -64,7 +64,7 @@ def menu_settings():
 def game_loop():
     title_screen("===Scammy Casino===")
 
-    guthaben = 50000   # Startguthaben in Cent (zB 100.00 Coins); setz sinnvollen Startwert
+    guthaben = 550   # Startguthaben in Cent (zB 100.00 Coins); setz sinnvollen Startwert
     state = "main"
 
     while True: 
